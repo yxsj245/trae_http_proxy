@@ -1,0 +1,21 @@
+# Python 虚拟环境
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 日志文件
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 配置文件（包含密钥）
+config.yaml
+
+# 测试
+.pytest_cache/
