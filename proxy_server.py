@@ -832,19 +832,6 @@ def run_proxy_server(config_path: str = "config.yaml"):
     # 创建服务器
     server = HTTPServer((host, port), ProxyHandler)
     
-    # 信号处理函数
-    def signal_handler(signum, frame):
-        """处理关闭信号（SIGTERM, SIGINT）"""
-        sig_name = signal.Signals(signum).name
-        print(f"\n收到 {sig_name} 信号，正在关闭服务器...")
-        logging.info(f"收到 {sig_name} 信号，正在关闭服务器...")
-        server.shutdown()
-        sys.exit(0)
-    
-    # 注册信号处理器
-    signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
-    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
-    
     print(f"HTTP 代理服务器已启动")
     print(f"监听地址: http://{host}:{port}")
     print(f"配置文件: {config_path}")
@@ -855,8 +842,11 @@ def run_proxy_server(config_path: str = "config.yaml"):
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n正在关闭服务器...")
-        server.shutdown()
+        logging.info("收到关闭信号，正在关闭服务器...")
+    finally:
+        server.server_close()
         print("服务器已关闭")
+        logging.info("服务器已关闭")
 
 
 if __name__ == '__main__':
