@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  http-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: http-proxy-server
+    ports:
+      - "8080:8080"
+    volumes:
+      # 挂载配置文件，方便修改配置而无需重新构建镜像
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - proxy-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  proxy-network:
+    driver: bridge
