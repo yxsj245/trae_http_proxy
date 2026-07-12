@@ -6,8 +6,11 @@ HTTP 代理服务器 - 用于注入 thinking 参数到 AI 模型请求中
 
 import json
 import logging
+import os
 import select
+import signal
 import socket as socket_module
+import sys
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
@@ -25,9 +28,14 @@ class ProxyConfig:
             self.config = yaml.safe_load(f)
     
     def get_proxy_host(self) -> str:
-        return self.config['proxy']['host']
+        # 优先使用环境变量，用于 Docker 等容器环境
+        return os.getenv('PROXY_HOST', self.config['proxy']['host'])
     
     def get_proxy_port(self) -> int:
+        # 优先使用环境变量
+        port_env = os.getenv('PROXY_PORT')
+        if port_env:
+            return int(port_env)
         return self.config['proxy']['port']
     
     def get_thinking_config_from_model(self, model_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -823,6 +831,19 @@ def run_proxy_server(config_path: str = "config.yaml"):
     
     # 创建服务器
     server = HTTPServer((host, port), ProxyHandler)
+    
+    # 信号处理函数
+    def signal_handler(signum, frame):
+        """处理关闭信号（SIGTERM, SIGINT）"""
+        sig_name = signal.Signals(signum).name
+        print(f"\n收到 {sig_name} 信号，正在关闭服务器...")
+        logging.info(f"收到 {sig_name} 信号，正在关闭服务器...")
+        server.shutdown()
+        sys.exit(0)
+    
+    # 注册信号处理器
+    signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
     
     print(f"HTTP 代理服务器已启动")
     print(f"监听地址: http://{host}:{port}")

@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制项目文件
 COPY proxy_server.py .
+COPY logging_filter.py .
 COPY config.yaml .
 
 # 暴露端口（默认 8080，可通过 config.yaml 配置）

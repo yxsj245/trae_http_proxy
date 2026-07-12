@@ -29,11 +29,23 @@ pip install -r requirements.txt
 编辑 `config.yaml` 文件，填入你的 API 密钥：
 
 ```yaml
+proxy:
+  host: "127.0.0.1"
+  port: 8080
+
+# 支持的模型配置
 models:
-  - name: "claude-3-5-sonnet-20241022"
+  # Anthropic 模型
+  - name: "claude-haiku-4-5-20251001"
     provider: "anthropic"
     api_base: "https://api.anthropic.com"
-    api_key: "YOUR_ANTHROPIC_API_KEY"  # 替换为你的密钥
+    api_key: "sk-YOUR_API_KEY"
+    # 思考强度: disabled(不思考), low(低), medium(中), high(高), maximum(最大)
+    thinking_intensity: "disabled"
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "proxy.log"
 ```
 
 ### 3. 启动服务器

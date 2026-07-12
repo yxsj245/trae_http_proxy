@@ -14,6 +14,8 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      - PROXY_HOST=0.0.0.0
+      - PROXY_PORT=8080
     networks:
       - proxy-network
     logging:
