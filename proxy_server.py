@@ -14,6 +14,7 @@ import requests
 import yaml
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
+from logging_filter import ThinkingContentFilter
 
 
 class ProxyConfig:
@@ -29,11 +30,35 @@ class ProxyConfig:
     def get_proxy_port(self) -> int:
         return self.config['proxy']['port']
     
-    def get_thinking_config(self) -> Dict[str, Any]:
-        thinking = self.config['thinking']
+    def get_thinking_config_from_model(self, model_config: Dict[str, Any]) -> Dict[str, Any]:
+        """根据模型配置中的 thinking_intensity 生成 thinking 配置"""
+        intensity = model_config.get('thinking_intensity', 'medium')
+        
+        # 思考强度映射表
+        intensity_map = {
+            'disabled': 0,
+            'low': 8000,
+            'medium': 16000,
+            'high': 32000,
+            'maximum': 64000
+        }
+        
+        budget_tokens = intensity_map.get(intensity, 16000)
+        
+        # 如果模型配置中直接指定了 budget_tokens，则优先使用
+        if 'budget_tokens' in model_config:
+            budget_tokens = model_config['budget_tokens']
+        
+        # disabled 时返回 disabled 类型
+        if intensity == 'disabled' or budget_tokens == 0:
+            return {
+                "type": "disabled",
+                "budget_tokens": 0
+            }
+        
         return {
-            "type": "enabled" if thinking['enabled'] else "disabled",
-            "budget_tokens": thinking['budget_tokens']
+            "type": "enabled",
+            "budget_tokens": budget_tokens
         }
     
     def get_model_config(self, model_name: str) -> Optional[Dict[str, str]]:
@@ -57,14 +82,32 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not hasattr(self.__class__, '_logging_setup'):
             log_config = self.config.get_logging_config()
             level = getattr(logging, log_config['level'])
-            logging.basicConfig(
-                level=level,
-                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                handlers=[
-                    logging.FileHandler(log_config['file'], encoding='utf-8'),
-                    logging.StreamHandler()
-                ]
-            )
+            
+            # 创建日志格式化器
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            
+            # 创建文件处理器
+            file_handler = logging.FileHandler(log_config['file'], encoding='utf-8')
+            file_handler.setLevel(level)
+            file_handler.setFormatter(formatter)
+            
+            # 创建流处理器
+            stream_handler = logging.StreamHandler()
+            stream_handler.setLevel(level)
+            stream_handler.setFormatter(formatter)
+            
+            # 创建并应用过滤器
+            thinking_filter = ThinkingContentFilter()
+            file_handler.addFilter(thinking_filter)
+            stream_handler.addFilter(thinking_filter)
+            
+            # 配置根日志
+            root_logger = logging.getLogger()
+            root_logger.setLevel(level)
+            root_logger.handlers.clear()
+            root_logger.addHandler(file_handler)
+            root_logger.addHandler(stream_handler)
+            
             self.__class__._logging_setup = True
     
     def log_message(self, format: str, *args):
@@ -138,11 +181,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # 根据提供商进行请求格式转换
             if provider == 'anthropic':
                 # OpenAI 格式 → Anthropic 格式转换（含 thinking 注入）
-                modified_data = self._convert_openai_to_anthropic(request_data)
+                modified_data = self._convert_openai_to_anthropic(request_data, model_config)
                 logging.info("请求已转换为 Anthropic 格式")
             else:
                 # OpenAI 原生请求仅注入 thinking
-                modified_data = self._inject_thinking(request_data, provider)
+                modified_data = self._inject_thinking(request_data, provider, model_config)
                 logging.info(f"注入 thinking 参数: {modified_data.get('thinking')}")
             
             logging.debug(f"转发请求体: {json.dumps(modified_data, ensure_ascii=False)}")
@@ -187,10 +230,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         
         return None, None
     
-    def _inject_thinking(self, data: Dict[str, Any], provider: str) -> Dict[str, Any]:
+    def _inject_thinking(self, data: Dict[str, Any], provider: str, model_config: Dict[str, Any]) -> Dict[str, Any]:
         """注入 thinking 参数"""
         modified_data = data.copy()
-        thinking_config = self.config.get_thinking_config()
+        thinking_config = self.config.get_thinking_config_from_model(model_config)
         
         if provider == 'anthropic':
             # Anthropic 格式：在顶层添加 thinking 字段
@@ -201,9 +244,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         
         return modified_data
     
-    def _convert_openai_to_anthropic(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _convert_openai_to_anthropic(self, data: Dict[str, Any], model_config: Dict[str, Any]) -> Dict[str, Any]:
         """将 OpenAI 请求格式转换为 Anthropic 格式"""
-        thinking_config = self.config.get_thinking_config()
+        thinking_config = self.config.get_thinking_config_from_model(model_config)
         
         converted = {
             "model": data.get("model"),
@@ -492,7 +535,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                                                 delta_text = delta.get('thinking') or delta.get('text', '')
                                                 if delta_text:
                                                     thinking_buffer.append(delta_text)
-                                                    print(delta_text, end='', flush=True)
+                                                    # 只在 DEBUG 级别时打印思考内容
+                                                    if logging.getLogger().level <= logging.DEBUG:
+                                                        print(delta_text, end='', flush=True)
                                                     # 转换为 OpenAI reasoning_content 格式
                                                     openai_chunk = {
                                                         "id": "chatcmpl-proxy",
@@ -516,7 +561,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                                             elif in_text_block:
                                                 delta_text = delta.get('text', '')
                                                 if delta_text:
-                                                    print(delta_text, end='', flush=True)
+                                                    # 只在 DEBUG 级别时打印文本内容
+                                                    if logging.getLogger().level <= logging.DEBUG:
+                                                        print(delta_text, end='', flush=True)
                                                     openai_chunk = {
                                                         "id": "chatcmpl-proxy",
                                                         "object": "chat.completion.chunk",
